@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.util.DisplayMetrics
+import android.util.Log
 import android.util.SparseIntArray
 import android.view.Surface
 import android.widget.Button
@@ -22,27 +23,23 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.screenrecorderexample.R
 import com.example.screenrecorderexample.service.MediaProjectionService
+import com.example.screenrecorderexample.util.Constants
 import java.io.File
 
 class MainActivity: AppCompatActivity() {
-    private val REQUEST_CODE = 1000
-    private val REQUEST_PERMISSION = 1001
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
-    private lateinit var mediaProjectionCallback: MediaProjectionCallBack
-
     private var mScreenDensity: Int? = null
-    private val DISPLAY_WIDTH = 1080
-    private val DISPLAY_HEIGHT = 1920
 
     private var mediaRecorder: MediaRecorder? = null
     private lateinit var toggleBtn: Button
-
-    var isChecked = false
+    private var recordingOn = false
 
     private var videoUri: String = ""
     private var ORIENTATIONS = SparseIntArray()
+
+    private val tag = "MainActivity"
 
     init {
         ORIENTATIONS.append(Surface.ROTATION_0, 90)
@@ -62,65 +59,69 @@ class MainActivity: AppCompatActivity() {
         mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
         toggleBtn = findViewById(R.id.toggleButton)
+        toggleBtn.setOnClickListener {
+            if (permissionsGranted()) {
+                toggleScreenRecord()
+            } else {
+                recordingOn = false
+                requestPermissions()
+            }
+        }
+    }
+
+    private fun permissionsGranted(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            toggleBtn.setOnClickListener {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) +
+            return (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) +
                     ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) +
                     ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) +
                     ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                    != PackageManager.PERMISSION_GRANTED) {
-                    isChecked = false
-                    ActivityCompat.requestPermissions(
-                        this, arrayOf(
-                            Manifest.permission.READ_MEDIA_VIDEO,
-                            Manifest.permission.READ_MEDIA_AUDIO,
-                            Manifest.permission.READ_MEDIA_IMAGES,
-                            Manifest.permission.RECORD_AUDIO
-                        ), REQUEST_CODE
-                    )
-                } else {
-                    toggleScreenRecord(toggleBtn)
-                }
-            }
+            == PackageManager.PERMISSION_GRANTED)
         } else {
-            toggleBtn.setOnClickListener {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) +
+            return (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) +
                     ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                    != PackageManager.PERMISSION_GRANTED) {
-                    isChecked = false
-                    ActivityCompat.requestPermissions(
-                        this, arrayOf(
-                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                            Manifest.permission.RECORD_AUDIO
-                        ), REQUEST_CODE
-                    )
-                } else {
-                    toggleScreenRecord(toggleBtn)
-                }
-            }
+                    == PackageManager.PERMISSION_GRANTED)
         }
-
     }
 
-    private fun toggleScreenRecord(toggleBtn: Button?) {
-        if (!isChecked) {
-            try {
+    private fun requestPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_AUDIO,
+                    Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.RECORD_AUDIO
+                ), Constants.REQUEST_CODE
+            )
+        } else {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                    Manifest.permission.RECORD_AUDIO
+                ), Constants.REQUEST_CODE
+            )
+        }
+    }
+
+    private fun toggleScreenRecord() {
+        try {
+            if (!recordingOn) {
+                Log.d(tag, "Start recording - enter")
                 initRecorder()
                 recordScreen()
-                isChecked = true
-                toggleBtn?.text = "Stop"
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        } else {
-            try {
+                Log.d(tag, "Start recording - exit")
+            } else {
+                Log.d(tag, "Stop recording - enter")
+                toggleBtn.text = getString(R.string.stopping)
                 mediaRecorder!!.stop()
                 mediaRecorder!!.reset()
                 stopRecordingScreen()
-                toggleBtn?.text = "Start"
-            } catch (e: Exception) {
-                e.printStackTrace()
+                recordingOn = false
+                toggleBtn.text = getString(R.string.start)
+                Log.d(tag, "Stop recording - exit")
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -140,14 +141,14 @@ class MainActivity: AppCompatActivity() {
             videoUri = file1.absolutePath
 
             mediaRecorder!!.setOutputFile(videoUri)
-            mediaRecorder!!.setVideoSize(DISPLAY_WIDTH, DISPLAY_HEIGHT)
+            mediaRecorder!!.setVideoSize(Constants.DISPLAY_WIDTH, Constants.DISPLAY_HEIGHT)
             mediaRecorder!!.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
             mediaRecorder!!.setAudioEncoder(MediaRecorder.AudioEncoder.HE_AAC)
             mediaRecorder!!.setVideoEncodingBitRate(512*1000)
             mediaRecorder!!.setVideoFrameRate(30)
 
-            var rotation = windowManager.defaultDisplay.rotation
-            var orientation = ORIENTATIONS.get(rotation + 90)
+            val rotation = windowManager.defaultDisplay.rotation
+            val orientation = ORIENTATIONS.get(rotation + 90)
 
             mediaRecorder!!.setOrientationHint(orientation)
             mediaRecorder!!.prepare()
@@ -160,20 +161,16 @@ class MainActivity: AppCompatActivity() {
     private fun recordScreen() {
         if (mediaProjection == null) {
             val intent = Intent(this, MediaProjectionService::class.java)
+            intent.setAction(Constants.START_FOREGROUND_ACTION)
             startService(intent)
-            startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_CODE)
+            startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), Constants.REQUEST_CODE)
         }
         virtualDisplay = createVirtualDisplay()
-//        try {
-//            mediaRecorder!!.start()
-//        } catch (e: Exception) {
-//            e.printStackTrace()
-//        }
     }
 
     private fun createVirtualDisplay(): VirtualDisplay? {
         return mediaProjection?.createVirtualDisplay(
-            "MainActivity", DISPLAY_WIDTH, DISPLAY_HEIGHT,
+            "MainActivity", Constants.DISPLAY_WIDTH, Constants.DISPLAY_HEIGHT,
             mScreenDensity!!,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             mediaRecorder!!.surface, null, null
@@ -183,24 +180,22 @@ class MainActivity: AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode != REQUEST_CODE) {
+        if (requestCode != Constants.REQUEST_CODE) {
             Toast.makeText(this, "Unknown error", Toast.LENGTH_LONG).show()
             return
         }
         if (resultCode != RESULT_OK) {
             Toast.makeText(this, "Permission denied", Toast.LENGTH_LONG).show()
-            isChecked = false
+            recordingOn = false
             return
         }
-        mediaProjectionCallback = MediaProjectionCallBack(
-            mediaRecorder!!, mediaProjection
-        )
-        mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data!!)
 
-        mediaProjection!!.registerCallback(mediaProjectionCallback, null)
+        mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data!!)
         virtualDisplay = createVirtualDisplay()
         try {
             mediaRecorder!!.start()
+            recordingOn = true
+            toggleBtn.text = getString(R.string.stop)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -215,24 +210,11 @@ class MainActivity: AppCompatActivity() {
 
     private fun destroyMediaProjection() {
         if (mediaProjection != null) {
-            mediaProjection!!.unregisterCallback(mediaProjectionCallback)
             mediaProjection!!.stop()
             mediaProjection = null
-        }
-    }
-
-    inner class MediaProjectionCallBack(
-        var mediaRecorder: MediaRecorder,
-        var mediaProjection: MediaProjection?
-    ): MediaProjection.Callback() {
-        override fun onStop() {
-            if (isChecked) {
-                mediaRecorder.stop()
-                mediaRecorder.reset()
-            }
-            mediaProjection = null
-            stopRecordingScreen()
-            super.onStop()
+            val intent = Intent(this, MediaProjectionService::class.java)
+            intent.setAction(Constants.STOP_FOREGROUND_ACTION)
+            startService(intent)
         }
     }
 
@@ -243,34 +225,17 @@ class MainActivity: AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         when(requestCode) {
-            REQUEST_PERMISSION -> {
-
+            Constants.REQUEST_PERMISSION -> {
                 val permissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     grantResults[0] + grantResults[1] + grantResults[2] + grantResults[3] == PackageManager.PERMISSION_GRANTED
                 } else {
                     grantResults[0] + grantResults[1] == PackageManager.PERMISSION_GRANTED
                 }
                 if (grantResults.size > 0 && permissionGranted) {
-                    toggleScreenRecord(toggleBtn)
+                    toggleScreenRecord()
                 } else {
-                    isChecked = false
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        ActivityCompat.requestPermissions(
-                            this, arrayOf(
-                                Manifest.permission.READ_MEDIA_VIDEO,
-                                Manifest.permission.READ_MEDIA_AUDIO,
-                                Manifest.permission.READ_MEDIA_IMAGES,
-                                Manifest.permission.RECORD_AUDIO
-                            ), REQUEST_CODE
-                        )
-                    } else {
-                        ActivityCompat.requestPermissions(
-                            this, arrayOf(
-                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                                Manifest.permission.RECORD_AUDIO
-                            ), REQUEST_CODE
-                        )
-                    }
+                    recordingOn = false
+                    requestPermissions()
                 }
             }
         }

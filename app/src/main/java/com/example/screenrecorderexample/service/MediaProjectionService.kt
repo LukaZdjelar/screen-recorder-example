@@ -1,22 +1,21 @@
 package com.example.screenrecorderexample.service
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.BroadcastReceiver
 import android.content.Intent
 import android.os.Build
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Process
 import androidx.core.app.NotificationCompat
+import com.example.screenrecorderexample.util.Constants
+import com.example.screenrecorderexample.util.Constants.Companion.IN_ROUTE_MONITORING_SERVICE_NOTIFICATION_CHANNEL_ID
+import com.example.screenrecorderexample.util.Constants.Companion.NOTIFICATION_ID
 
 
 class MediaProjectionService: Service() {
-    val NOTIFICATION_ID = 0x01
     private var mNotificationChannelDefault: NotificationChannel? = null
-    private val IN_ROUTE_MONITORING_SERVICE_NOTIFICATION_CHANNEL_ID = "screen_record_service_channel_0"
     private val screenRecordServiceNotificationChannelName = "Screen Record Notification"
     private val defaultNotificationImportance = NotificationManager.IMPORTANCE_LOW
     private var mNotificationManager: NotificationManager? = null
@@ -25,9 +24,16 @@ class MediaProjectionService: Service() {
         return null;
     }
 
-    override fun onCreate() {
-        super.onCreate()
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action.equals(Constants.START_FOREGROUND_ACTION)) {
+            startService()
+        } else if (intent?.action.equals(Constants.STOP_FOREGROUND_ACTION)) {
+            stopService(startId)
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
 
+    private fun startService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             mNotificationChannelDefault = NotificationChannel(
                 IN_ROUTE_MONITORING_SERVICE_NOTIFICATION_CHANNEL_ID,
@@ -56,11 +62,13 @@ class MediaProjectionService: Service() {
             Process.THREAD_PRIORITY_BACKGROUND
         )
         thread.start()
-
-//        val mServiceLooper = thread.looper
-//        mServiceHandler = ServiceHandler(mServiceLooper)
     }
 
+    private fun stopService(startId: Int) {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelfResult(startId);
+        stopSelf()
+    }
 
     private fun getNotificationManager(): NotificationManager? {
         if (mNotificationManager == null) {
