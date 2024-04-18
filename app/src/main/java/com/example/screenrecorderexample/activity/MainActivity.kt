@@ -22,6 +22,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.screenrecorderexample.R
+import com.example.screenrecorderexample.service.MediaProjectionCallback
 import com.example.screenrecorderexample.service.MediaProjectionService
 import com.example.screenrecorderexample.util.Constants
 import java.io.File
@@ -38,6 +39,8 @@ class MainActivity: AppCompatActivity() {
 
     private var videoUri: String = ""
     private var ORIENTATIONS = SparseIntArray()
+
+    private val mediaProjectionCallback = MediaProjectionCallback()
 
     private val tag = "MainActivity"
 
@@ -60,7 +63,7 @@ class MainActivity: AppCompatActivity() {
 
         toggleBtn = findViewById(R.id.toggleButton)
         toggleBtn.setOnClickListener {
-            if (permissionsGranted()) {
+            if (permissionsGranted() || recordingOn) {
                 toggleScreenRecord()
             } else {
                 recordingOn = false
@@ -91,14 +94,14 @@ class MainActivity: AppCompatActivity() {
                     Manifest.permission.READ_MEDIA_AUDIO,
                     Manifest.permission.READ_MEDIA_IMAGES,
                     Manifest.permission.RECORD_AUDIO
-                ), Constants.REQUEST_CODE
+                ), Constants.REQUEST_PERMISSION
             )
         } else {
             ActivityCompat.requestPermissions(
                 this, arrayOf(
                     Manifest.permission.WRITE_EXTERNAL_STORAGE,
                     Manifest.permission.RECORD_AUDIO
-                ), Constants.REQUEST_CODE
+                ), Constants.REQUEST_PERMISSION
             )
         }
     }
@@ -169,6 +172,7 @@ class MainActivity: AppCompatActivity() {
     }
 
     private fun createVirtualDisplay(): VirtualDisplay? {
+        mediaProjection?.registerCallback(mediaProjectionCallback, null)
         return mediaProjection?.createVirtualDisplay(
             "MainActivity", Constants.DISPLAY_WIDTH, Constants.DISPLAY_HEIGHT,
             mScreenDensity!!,
@@ -205,6 +209,7 @@ class MainActivity: AppCompatActivity() {
         if (virtualDisplay == null)
             return
         virtualDisplay!!.release()
+        mediaProjection?.unregisterCallback(mediaProjectionCallback)
         destroyMediaProjection()
     }
 
@@ -231,7 +236,7 @@ class MainActivity: AppCompatActivity() {
                 } else {
                     grantResults[0] + grantResults[1] == PackageManager.PERMISSION_GRANTED
                 }
-                if (grantResults.size > 0 && permissionGranted) {
+                if (permissionGranted) {
                     toggleScreenRecord()
                 } else {
                     recordingOn = false
