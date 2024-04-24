@@ -1,8 +1,10 @@
 package com.example.screenrecorderexample.activity
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -44,6 +46,9 @@ class MainActivity: AppCompatActivity() {
 
     private val tag = "MainActivity"
 
+    var resultCodeResult: Int = -1
+    lateinit var dataResult: Intent
+
     init {
         ORIENTATIONS.append(Surface.ROTATION_0, 90)
         ORIENTATIONS.append(Surface.ROTATION_90, 0)
@@ -63,22 +68,24 @@ class MainActivity: AppCompatActivity() {
 
         toggleBtn = findViewById(R.id.toggleButton)
         toggleBtn.setOnClickListener {
-            if (permissionsGranted() || recordingOn) {
+            if ((!recordingOn && arePermissionsGranted()) || recordingOn) {
                 toggleScreenRecord()
             } else {
                 recordingOn = false
                 requestPermissions()
             }
         }
+        val filter = IntentFilter("com.example.YourServiceReady")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(serviceReadyReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(serviceReadyReceiver, filter)
+        }
     }
 
-    private fun permissionsGranted(): Boolean {
+    private fun arePermissionsGranted(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) +
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) +
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) +
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            == PackageManager.PERMISSION_GRANTED)
+            return ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         } else {
             return (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) +
                     ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -90,9 +97,6 @@ class MainActivity: AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(
                 this, arrayOf(
-                    Manifest.permission.READ_MEDIA_VIDEO,
-                    Manifest.permission.READ_MEDIA_AUDIO,
-                    Manifest.permission.READ_MEDIA_IMAGES,
                     Manifest.permission.RECORD_AUDIO
                 ), Constants.REQUEST_PERMISSION
             )
@@ -163,12 +167,8 @@ class MainActivity: AppCompatActivity() {
 
     private fun recordScreen() {
         if (mediaProjection == null) {
-            val intent = Intent(this, MediaProjectionService::class.java)
-            intent.setAction(Constants.START_FOREGROUND_ACTION)
-            startService(intent)
             startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), Constants.REQUEST_CODE)
         }
-        virtualDisplay = createVirtualDisplay()
     }
 
     private fun createVirtualDisplay(): VirtualDisplay? {
@@ -194,14 +194,30 @@ class MainActivity: AppCompatActivity() {
             return
         }
 
-        mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data!!)
-        virtualDisplay = createVirtualDisplay()
-        try {
-            mediaRecorder!!.start()
-            recordingOn = true
-            toggleBtn.text = getString(R.string.stop)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        resultCodeResult = resultCode
+        dataResult = data!!
+        val intent = Intent(this, MediaProjectionService::class.java)
+        intent.setAction(Constants.START_FOREGROUND_ACTION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    private val serviceReadyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.example.YourServiceReady") {
+                mediaProjection = mediaProjectionManager.getMediaProjection(resultCodeResult, dataResult)
+                virtualDisplay = createVirtualDisplay()
+                try {
+                    mediaRecorder!!.start()
+                    recordingOn = true
+                    toggleBtn.text = getString(R.string.stop)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -232,7 +248,7 @@ class MainActivity: AppCompatActivity() {
         when(requestCode) {
             Constants.REQUEST_PERMISSION -> {
                 val permissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    grantResults[0] + grantResults[1] + grantResults[2] + grantResults[3] == PackageManager.PERMISSION_GRANTED
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED
                 } else {
                     grantResults[0] + grantResults[1] == PackageManager.PERMISSION_GRANTED
                 }
@@ -244,5 +260,10 @@ class MainActivity: AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(serviceReadyReceiver)
     }
 }
