@@ -10,6 +10,7 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.MediaRecorder
 import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
@@ -167,7 +168,13 @@ class MainActivity: AppCompatActivity() {
 
     private fun recordScreen() {
         if (mediaProjection == null) {
-            startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), Constants.REQUEST_CODE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(
+                    MediaProjectionConfig.createConfigForUserChoice()), Constants.REQUEST_CODE)
+            } else {
+                startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), Constants.REQUEST_CODE)
+            }
+
         }
     }
 
